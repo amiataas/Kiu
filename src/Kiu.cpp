@@ -5,6 +5,7 @@
 #include <list>
 #include <memory>
 #include <string>
+#include <utility>
 
 enum class NumberKind {
   Decimal,
@@ -19,13 +20,20 @@ enum class TokenKind {
   Slash,
   Precent,
 
-	Dot,
-	Comma,
-	Colon,
-	Semicolon,
+  Dot,
+  Comma,
+  Colon,
+  Semicolon,
 
   DecimalNumber,
   RationalNumber,
+};
+
+enum class OperationKind {
+  Add,
+  Sub,
+  Mul,
+  Div,
 };
 
 class Token {
@@ -47,17 +55,17 @@ public:
       return "div";
     case TokenKind::Precent:
       return "mod";
-		case TokenKind::Dot:
-			return ".";
-		case TokenKind::Comma:
-			return ",";
-		case TokenKind::Colon:
-			return ":";
-		case TokenKind::Semicolon:
-			return ";";
-		case TokenKind::DecimalNumber:
-		case TokenKind::RationalNumber:
-			return "num(" + this->literal + ")";
+    case TokenKind::Dot:
+      return ".";
+    case TokenKind::Comma:
+      return ",";
+    case TokenKind::Colon:
+      return ":";
+    case TokenKind::Semicolon:
+      return ";";
+    case TokenKind::DecimalNumber:
+    case TokenKind::RationalNumber:
+      return "num(" + this->literal + ")";
     default:
       return "?";
     }
@@ -105,29 +113,31 @@ public:
       case '%':
         new_token(TokenKind::Precent);
         break;
-			case '.':
+      case '.':
         new_token(TokenKind::Dot);
         break;
-			case ',':
+      case ',':
         new_token(TokenKind::Precent);
         break;
-			case ':':
+      case ':':
         new_token(TokenKind::Colon);
         break;
-			case ';':
+      case ';':
         new_token(TokenKind::Semicolon);
         break;
       default:
-				if( is_decimal_num(this->current) ) {
-					lex_numeric();
-				}
+        if (is_decimal_num(this->current)) {
+          lex_numeric();
+        }
         break;
       }
     }
   }
 
   void new_token(TokenKind kind) { this->tokens.push_back(Token(kind)); }
-	void new_token(TokenKind kind, std::string literal) { this->tokens.push_back(Token(kind, literal)); }
+  void new_token(TokenKind kind, std::string literal) {
+    this->tokens.push_back(Token(kind, literal));
+  }
 
   ~Lexer() {
     if (this->file.is_open()) {
@@ -232,7 +242,7 @@ private:
     }
 
     while (!eof()) {
-			char c = peek();
+      char c = peek();
       if (is_binary) {
         if (is_binary_num(c)) {
           advance();
@@ -256,34 +266,59 @@ private:
             continue;
           }
 
-					if(is_float && c == '.') {
-						break;
-					}
+          if (is_float && c == '.') {
+            break;
+          }
 
-					advance();
-					continue;
+          advance();
+          continue;
         } else {
-					break;
-				}
+          break;
+        }
       }
     }
 
-		int32_t len = this->get_pos() - this->start;
-		std::string literal = std::string(len, {});
-	
-		this->file.seekg(-len, std::ios::cur);
-		int32_t i = 0;
-		for(; i < len; i++) {
-			this->file.get(literal[i]);
-		}	
+    int32_t len = this->get_pos() - this->start;
+    std::string literal = std::string(len, {});
 
-		new_token(is_float ? TokenKind::RationalNumber : TokenKind::DecimalNumber, literal);
+    this->file.seekg(-len, std::ios::cur);
+    int32_t i = 0;
+    for (; i < len; i++) {
+      this->file.get(literal[i]);
+    }
+
+    new_token(is_float ? TokenKind::RationalNumber : TokenKind::DecimalNumber,
+              literal);
   }
+};
+
+class ExprAST {
+public:
+  virtual ~ExprAST() = default;
+};
+
+class RationalExprAST : public ExprAST {
+public:
+  RationalExprAST(Token token) : token(token) {}
+
+private:
+  Token token;
+};
+
+class BinaryExprAST : public ExprAST {
+public:
+  BinaryExprAST(OperationKind op, std::unique_ptr<ExprAST> left,
+                std::unique_ptr<ExprAST> right)
+      : op(op), left(std::move(left)), right(std::move(right)) {}
+
+private:
+  OperationKind op;
+  std::unique_ptr<ExprAST> left, right;
 };
 
 int main(int argc, char *argv[]) {
   auto lexer = std::make_unique<Lexer>(std::string(argv[1]));
-	lexer->lex();
+  lexer->lex();
 
   for (const auto &item : lexer->tokens) {
     std::cout << item.to_string() << " ";
