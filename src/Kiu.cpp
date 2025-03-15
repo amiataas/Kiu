@@ -3,6 +3,7 @@
 #include <iosfwd>
 #include <iostream>
 #include <list>
+#include <llvm/ADT/StringRef.h>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -213,6 +214,8 @@ public:
     }
   }
 
+  llvm::StringRef get_literal() { return this->literal; }
+
 private:
   TokenKind kind;
   std::string literal;
@@ -392,8 +395,8 @@ public:
           advance();
           new_token(TokenKind::GreatEqual);
         } else if (p == '>') {
-					advance();
-					new_token(TokenKind::DGreat);
+          advance();
+          new_token(TokenKind::DGreat);
         } else {
           new_token(TokenKind::Great);
         }
@@ -563,7 +566,7 @@ private:
     }
 
     if (is_binary || is_octal || is_hex) {
-			advance();
+      advance();
     }
 
     while (!eof()) {
@@ -573,22 +576,22 @@ private:
           advance();
           continue;
         } else {
-					break;
-				}
+          break;
+        }
       } else if (is_octal) {
         if (is_octal_num(c)) {
           advance();
           continue;
         } else {
-					break;
-				}
+          break;
+        }
       } else if (is_hex) {
         if (is_hex_num(c)) {
           advance();
           continue;
         } else {
-					break;
-				}
+          break;
+        }
       } else {
         if (is_decimal_num(c) || c == '.') {
           if (!is_float && c == '.') {
@@ -623,14 +626,38 @@ private:
   }
 };
 
+#include <llvm/ADT/APFloat.h>
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/Value.h>
+#include <llvm/Support/Format.h>
+
+class CodeGen {
+public:
+  CodeGen() {
+    context = std::make_unique<llvm::LLVMContext>();
+    builder = std::make_unique<llvm::IRBuilder<>>(*context);
+  }
+  std::unique_ptr<llvm::LLVMContext> context;
+  std::unique_ptr<llvm::IRBuilder<>> builder;
+
+private:
+};
+
 class ExprAST {
 public:
   virtual ~ExprAST() = default;
+  virtual llvm::Value *codegen(CodeGen &gen) = 0;
 };
 
 class RationalExprAST : public ExprAST {
 public:
   RationalExprAST(Token token) : token(token) {}
+  llvm::Value *codegen(CodeGen &gen) override {
+    llvm::APFloat apf(llvm::APFloat::IEEEdouble(), this->token.get_literal());
+    return llvm::ConstantFP::get(*gen.context, apf);
+  }
 
 private:
   Token token;
@@ -642,6 +669,18 @@ public:
                 std::unique_ptr<ExprAST> right)
       : op(op), left(std::move(left)), right(std::move(right)) {}
 
+  llvm::Value *codegen(CodeGen &gen) override {
+		llvm::Value *L = this->left->codegen(gen);
+		llvm::Value *R = this->right->codegen(gen);
+
+    switch (this->op) {
+    case OperationKind::Add:
+			return gen.builder->CreateFAdd(L, R, "addtmp");
+    default:
+			return nullptr;
+    }
+  }
+
 private:
   OperationKind op;
   std::unique_ptr<ExprAST> left, right;
@@ -651,9 +690,17 @@ int main(int argc, char *argv[]) {
   auto lexer = std::make_unique<Lexer>(std::string(argv[1]));
   lexer->lex();
 
-  for (const auto &item : lexer->tokens) {
-    std::cout << item.to_string() << " ";
-  }
+	for( const auto &token : lexer->tokens) {
+		std::cout << token.to_string() << " ";
+	}
+
+  auto gen = std::make_unique<CodeGen>();
+
+  auto a = std::make_unique<RationalExprAST>(Token(TokenKind::RationalNumber, "10.5"));
+  auto b = std::make_unique<RationalExprAST>(Token(TokenKind::RationalNumber, "5.2"));
+	auto c = BinaryExprAST(OperationKind::Add, std::move(a), std::move(b));
+  llvm::Value *m = c.codegen(*gen);
+  m->print(llvm::outs());
 
   return 0;
 }
